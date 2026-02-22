@@ -15,11 +15,21 @@
   <div>Data: <span id="dataVenda"></span></div>
 </header>
 
+<!-- ====== TABS MOBILE (oculto no desktop via CSS) ====== -->
+<div class="mobile-tabs" id="mobileTabs">
+  <button class="mobile-tab-btn active" id="tabItens" onclick="switchTab('left')">
+    🛒 Itens
+  </button>
+  <button class="mobile-tab-btn" id="tabPagamento" onclick="switchTab('right')">
+    💳 Pagamento
+  </button>
+</div>
+
 <!-- ====== MAIN LAYOUT ====== -->
 <main class="layout">
 
   <!-- ESQUERDA: Entrada de itens -->
-  <section class="left">
+  <section class="left tab-active" id="panelLeft">
     <div class="row">
       <div class="field">
         <label>Qtd</label>
@@ -65,7 +75,7 @@
   </section>
 
   <!-- DIREITA: Totais e pagamento -->
-  <aside class="right">
+  <aside class="right" id="panelRight">
     <div class="totBox">
 
       <!-- BARRA DE CLIENTE -->
@@ -129,7 +139,6 @@
   <button onclick="location.href='dashboard.html'" type="button">📈 Dashboard</button>
   <button onclick="location.href='gestao.html'" type="button">🔧 Gestão</button>
   <button onclick="location.href='cliente.html'" type="button">👥 Clientes</button>
-
   <button id="novaVenda" type="button">🔄 Nova Venda</button>
   <button id="finalizar" type="button">✅ Finalizar</button>
 </footer>
@@ -232,17 +241,41 @@
 <!-- ====== SCRIPTS (ordem importa) ====== -->
 <script src="config.js"></script>
 <script>
-  // Inicializar Firebase a partir do config
   if (!firebase.apps.length) firebase.initializeApp(APP_CONFIG.firebase);
   const db = firebase.firestore();
   console.log("%c🔥 Firebase conectado (PDV Lite)", "color:#4f7cff");
+
+  // === TABS MOBILE ===
+  function switchTab(panel) {
+    const left = document.getElementById('panelLeft');
+    const right = document.getElementById('panelRight');
+    const tabItens = document.getElementById('tabItens');
+    const tabPag = document.getElementById('tabPagamento');
+
+    if (panel === 'left') {
+      left.classList.add('tab-active');
+      right.classList.remove('tab-active');
+      tabItens.classList.add('active');
+      tabPag.classList.remove('active');
+    } else {
+      right.classList.add('tab-active');
+      left.classList.remove('tab-active');
+      tabPag.classList.add('active');
+      tabItens.classList.remove('active');
+    }
+    // Scroll pro topo do painel
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // Ao adicionar item: feedback visual de que foi adicionado
+  // (o addBtn existente chama a lógica em pdv.js, mantemos compatível)
 </script>
 <script src="modules/modal.js"></script>
 <script src="modules/sync-manager.js"></script>
 <script src="modules/caixa.js"></script>
 <script src="modules/cliente.js"></script>
 <script src="modules/nav.js"></script>
-  <script src="modules/pix.js"></script>
+<script src="modules/pix.js"></script>
 <script src="pdv.js"></script>
 
 </body>
