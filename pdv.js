@@ -430,6 +430,7 @@ async function finalizarVenda() {
   } else {
     Modal.toast("✅ Venda #" + seq + " finalizada!");
   }
+}
 
 // ===== NOVA VENDA =====
 function novaVenda() {
