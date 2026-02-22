@@ -16,7 +16,7 @@ const PixManager = {
     localStorage.setItem(this.LS_KEY, JSON.stringify(cfg));
     // Sync Firebase
     if (window.syncManager?.db) {
-      window.syncManager.pushKey("pix_config", cfg).catch(() => {});
+      window.syncManager.db.collection("data").doc("keys").set({ pix_config: cfg }, { merge: true }).catch(() => {});
     }
   },
 
@@ -139,7 +139,7 @@ const PixManager = {
 
     // Salvar QR no Firebase como cache
     if (window.syncManager?.db) {
-      window.syncManager.pushKey("pix_last_qr", {
+      window.syncManager.db.collection("data").doc("keys").set({ pix_last_qr: { base64: qrBase64, payload, valor: valorVenda, data: new Date().toISOString() } }, { merge: true }).catch(() => {});
         base64: qrBase64,
         payload,
         valor: valorVenda,
