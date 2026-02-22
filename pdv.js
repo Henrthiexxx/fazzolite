@@ -81,6 +81,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ClienteManager.init();
   UsuarioManager.garantirAdmin();
   Nav.init();
+  PixManager.init();
 
   // SyncManager - pull imediato + periódico
   if (typeof SyncManager !== "undefined" && db) {
@@ -421,8 +422,14 @@ async function finalizarVenda() {
   renderCarrinho();
   ClienteManager.limpar();
 
-  Modal.toast("✅ Venda #" + seq + " finalizada!");
-}
+  // Mostrar QR PIX se pagamento for Pix
+  const temPix = pagos.some(p => p.forma.toLowerCase().includes("pix"));
+  if (temPix) {
+    const valorPix = pagos.find(p => p.forma.toLowerCase().includes("pix"))?.valor || total;
+    setTimeout(() => PixManager.mostrar(valorPix), 300);
+  } else {
+    Modal.toast("✅ Venda #" + seq + " finalizada!");
+  }
 
 // ===== NOVA VENDA =====
 function novaVenda() {
