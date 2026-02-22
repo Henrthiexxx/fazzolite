@@ -137,15 +137,17 @@ const PixManager = {
       return;
     }
 
-    // Salvar QR no Firebase como cache
-    if (window.syncManager?.db) {
-      window.syncManager.db.collection("data").doc("keys").set({ pix_last_qr: { base64: qrBase64, payload, valor: valorVenda, data: new Date().toISOString() } }, { merge: true }).catch(() => {});
-        base64: qrBase64,
-        payload,
-        valor: valorVenda,
-        data: new Date().toISOString()
-      }).catch(() => {});
+// Salvar QR no Firebase como cache
+if (window.syncManager?.db) {
+  window.syncManager.db.collection("data").doc("keys").set({
+    pix_last_qr: {
+      base64: qrBase64,
+      payload,
+      valor: valorVenda,
+      data: new Date().toISOString()
     }
+  }, { merge: true }).catch(() => {});
+}
 
     const fmt = v => "R$ " + (v || 0).toFixed(2).replace(".", ",");
 
