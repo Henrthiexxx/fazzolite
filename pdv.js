@@ -5,7 +5,7 @@
 const $ = s => document.querySelector(s);
 const fmt = n => (n || 0).toFixed(2).replace(".", ",");
 
-// ===== HELPERS (NOVO) =====
+// ===== HELPERS =====
 const norm = s => (s || "").toString().trim().toLowerCase();
 
 function isVoucherSale(venda) {
@@ -15,23 +15,15 @@ function isVoucherSale(venda) {
 }
 
 function addDebitoCliente(clienteId, valor) {
-  const LS_CLIENTES =
-    (window.APP_CONFIG?.ls?.clientes) ||
-    "fazzo_clientes"; // mesmo LS da sua página de clientes
-
+  const LS_CLIENTES = (window.APP_CONFIG?.ls?.clientes) || "fazzo_clientes";
   const arr = JSON.parse(localStorage.getItem(LS_CLIENTES) || "[]");
   const idx = arr.findIndex(c => c.id === clienteId);
   if (idx < 0) return false;
-
   const atual = parseFloat(arr[idx].debito) || 0;
   const v = parseFloat(valor) || 0;
-
   arr[idx].debito = +(atual + v).toFixed(2);
   arr[idx].dataAtualizacao = new Date().toISOString();
-
   localStorage.setItem(LS_CLIENTES, JSON.stringify(arr));
-
-  // opcional: avisar UI (se você quiser escutar na página de clientes)
   try { window.dispatchEvent(new CustomEvent("clientesAtualizados", { detail: { id: clienteId } })); } catch {}
   return true;
 }
@@ -45,30 +37,24 @@ const state = {
 
 // ===== INIT =====
 document.addEventListener("DOMContentLoaded", () => {
-  // Relógio
   const tick = () => { $("#dataVenda").textContent = new Date().toLocaleString("pt-BR"); };
   tick();
   setInterval(tick, 1000);
 
-  // Preencher formas de pagamento do config
   const fp1 = $("#fp1"), fp2 = $("#fp2");
   APP_CONFIG.pdv.formasPagamento.forEach(f => {
     fp1.appendChild(new Option(f, f));
     fp2.appendChild(new Option(f, f));
   });
 
-  // Listeners de atualização
   ["#v1", "#v2", "#desconto"].forEach(sel => $(sel)?.addEventListener("input", renderCarrinho));
 
-  // Busca
   $("#busca")?.addEventListener("input", onBusca);
   $("#addBtn").onclick = () => addItem();
 
-  // Footer
   $("#novaVenda")?.addEventListener("click", novaVenda);
   $("#finalizar")?.addEventListener("click", finalizarVenda);
 
-  // Popup Produto
   $("#btnProduto")?.addEventListener("click", () => {
     PopupLateral.abrir("popupProduto", "frameProduto", "produto/produto.html");
   });
@@ -76,14 +62,12 @@ document.addEventListener("DOMContentLoaded", () => {
     PopupLateral.fechar("popupProduto", "frameProduto");
   });
 
-  // Iniciar módulos
   CaixaManager.init();
   ClienteManager.init();
   UsuarioManager.garantirAdmin();
   Nav.init();
   PixManager.init();
 
-  // SyncManager - pull imediato + periódico
   if (typeof SyncManager !== "undefined" && db) {
     SyncManager.init(db);
     if (typeof SyncManager.pullFromServer === "function") {
@@ -98,7 +82,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   renderCarrinho();
 
-  // Quando produtos carregarem do servidor, atualizar state
   window.addEventListener("produtosAtualizados", () => {
     state.produtos = JSON.parse(localStorage.getItem(APP_CONFIG.ls.produtos) || "[]");
     console.log(`📦 Produtos recarregados: ${state.produtos.length}`);
@@ -112,12 +95,10 @@ function onBusca(e) {
   const val = e.target.value.trim();
   clearTimeout(state.typingTimer);
 
-  // Código de barras (3+ dígitos) → auto-add
   if (/^\d{3,}$/.test(val)) {
     $("#sugList").classList.add("hidden");
     const p = findProduto(val);
     showMatchInfo(p);
-
     state.typingTimer = setTimeout(() => {
       autoAdd();
       $("#busca").focus();
@@ -125,7 +106,6 @@ function onBusca(e) {
     return;
   }
 
-  // Texto → sugestões
   renderSugestoes(val);
   showMatchInfo(findProduto(val));
 }
@@ -267,7 +247,6 @@ function renderCarrinho() {
   $("#totalBruto").textContent = fmt(totalBruto);
   $("#total").textContent = fmt(total);
 
-  // Auto-preencher v1 se não foi editado manualmente
   const v1El = $("#v1");
   if (v1El && !v1El.dataset.manual) {
     v1El.value = total.toFixed(2);
@@ -300,8 +279,61 @@ window.remItem = (i) => {
   renderCarrinho();
 };
 
-// Marca v1 como manual
 $("#v1")?.addEventListener("input", function () { this.dataset.manual = "1"; });
+
+// ===== SALVAR VENDA (chamado após confirmação) =====
+async function salvarVenda(venda) {
+  // Salvar local
+  const vendas = JSON.parse(localStorage.getItem(APP_CONFIG.ls.vendas) || "[]");
+  vendas.push(venda);
+  localStorage.setItem(APP_CONFIG.ls.vendas, JSON.stringify(vendas));
+
+  // Sync Firebase
+  if (window.syncManager?.db) {
+    try { await window.syncManager.save("vendas", venda); }
+    catch (err) { console.error("❌ Sync venda:", err); }
+  }
+
+  // Atualizar cliente
+  const clienteSel = ClienteManager.getSelecionado();
+  if (clienteSel) {
+    try { await ClienteManager.atualizarAposVenda(venda); }
+    catch (err) { console.warn("⚠️ Atualizar cliente:", err); }
+  }
+
+  // Débito voucher
+  const clienteId = venda.clienteId;
+  if (clienteId && isVoucherSale(venda)) {
+    addDebitoCliente(clienteId, venda.total);
+  }
+
+  // Caixa
+  CaixaManager.registrarVenda(venda);
+
+  // Reset interface
+  state.carrinho = [];
+  persistCart();
+  $("#v1").value = "";
+  $("#v1").dataset.manual = "";
+  $("#v2").value = "";
+  $("#desconto").value = "";
+  renderCarrinho();
+  ClienteManager.limpar();
+
+  Modal.toast("✅ Venda #" + venda.numero + " finalizada!");
+}
+
+// ===== REVERTER ESTOQUE (cancelamento PIX) =====
+function reverterEstoque(itens) {
+  itens.forEach(it => {
+    if (!it.codigoBarras) return;
+    const idx = state.produtos.findIndex(p => (p.codigoBarras || "") === it.codigoBarras);
+    if (idx > -1) {
+      state.produtos[idx].estoque = parseInt(state.produtos[idx].estoque || 0) + it.qtd;
+    }
+  });
+  localStorage.setItem(APP_CONFIG.ls.produtos, JSON.stringify(state.produtos));
+}
 
 // ===== FINALIZAR VENDA =====
 async function finalizarVenda() {
@@ -317,7 +349,6 @@ async function finalizarVenda() {
   const v2 = parseFloat($("#v2").value || 0);
   const pago = +(v1 + v2).toFixed(2);
 
-  // Pagamentos
   const pagos = [];
   let formaPrincipal = "Dinheiro";
   if (v1 > 0) {
@@ -332,18 +363,12 @@ async function finalizarVenda() {
     return Modal.show("Pagamento insuficiente", "O valor pago é menor que o total.");
   }
 
-  // Cliente
   const clienteSel = ClienteManager.getSelecionado();
-
-  // Pega ID de forma robusta (NOVO)
   const clienteId =
-    clienteSel?.id ||
-    clienteSel?.clienteId ||
-    clienteSel?.uid ||
-    clienteSel?.key ||
-    null;
+    clienteSel?.id || clienteSel?.clienteId ||
+    clienteSel?.uid || clienteSel?.key || null;
 
-  // Atualizar estoque
+  // Atualizar estoque antecipadamente
   state.carrinho.forEach(it => {
     if (!it.codigoBarras) return;
     const idx = state.produtos.findIndex(p => (p.codigoBarras || "") === it.codigoBarras);
@@ -353,7 +378,7 @@ async function finalizarVenda() {
   });
   localStorage.setItem(APP_CONFIG.ls.produtos, JSON.stringify(state.produtos));
 
-  // Criar venda
+  // Montar objeto venda
   const caixa = CaixaManager.getAtual();
   const seq = parseInt(localStorage.getItem(APP_CONFIG.ls.sequencial) || "0") + 1;
   localStorage.setItem(APP_CONFIG.ls.sequencial, String(seq));
@@ -364,7 +389,6 @@ async function finalizarVenda() {
     data: new Date().toISOString(),
     caixaId: caixa?.id || null,
     usuario: caixa?.usuario || "Desconhecido",
-
     itens: state.carrinho.map(i => ({
       nome: i.nome,
       codigoBarras: i.codigoBarras || null,
@@ -373,62 +397,35 @@ async function finalizarVenda() {
       preco: i.unitario,
       subtotal: i.subtotal
     })),
-
     total, totalBruto: +bruto.toFixed(2), desconto: +desc.toFixed(2),
     pago, troco: +(Math.max(0, pago - total)).toFixed(2),
     formaPagamento: formaPrincipal, pagamentos: pagos,
-
-    clienteId: clienteId,
+    clienteId,
     clienteNome: (clienteSel?.nome || clienteSel?.razaoSocial) || null,
     clienteTelefone: clienteSel?.telefone || null,
     clienteDoc: (clienteSel?.cpf || clienteSel?.cnpj) || null,
-
     dataAtualizacao: new Date().toISOString()
   };
 
-  // Salvar local
-  const vendas = JSON.parse(localStorage.getItem(APP_CONFIG.ls.vendas) || "[]");
-  vendas.push(venda);
-  localStorage.setItem(APP_CONFIG.ls.vendas, JSON.stringify(vendas));
-
-  // Sync Firebase
-  if (window.syncManager?.db) {
-    try { await window.syncManager.save("vendas", venda); }
-    catch (err) { console.error("❌ Sync venda:", err); }
-  }
-
-  // Atualizar cliente (se esse método regravar cliente no LS, ele pode "desfazer" o débito,
-  // então a gente soma o débito DEPOIS daqui) (CORRIGIDO)
-  if (clienteSel) {
-    try { await ClienteManager.atualizarAposVenda(venda); }
-    catch (err) { console.warn("⚠️ Atualizar cliente:", err); }
-  }
-
-  // ✅ SOMAR DÉBITO SE FOR VOUCHER (CORRIGIDO: depois do atualizarAposVenda)
-  if (clienteId && isVoucherSale(venda)) {
-    addDebitoCliente(clienteId, venda.total);
-  }
-
-  // Atualizar caixa
-  CaixaManager.registrarVenda(venda);
-
-  // Reset
-  state.carrinho = [];
-  persistCart();
-  $("#v1").value = "";
-  $("#v1").dataset.manual = "";
-  $("#v2").value = "";
-  $("#desconto").value = "";
-  renderCarrinho();
-  ClienteManager.limpar();
-
-  // Mostrar QR PIX se pagamento for Pix
+  // PIX: aguarda confirmação antes de salvar
   const temPix = pagos.some(p => p.forma.toLowerCase().includes("pix"));
   if (temPix) {
     const valorPix = pagos.find(p => p.forma.toLowerCase().includes("pix"))?.valor || total;
-    setTimeout(() => PixManager.mostrar(valorPix), 300);
+
+    await PixManager.mostrar(
+      valorPix,
+      // onConfirm: pagamento recebido
+      () => salvarVenda(venda),
+      // onCancel: reverter estoque e sequencial
+      () => {
+        reverterEstoque(venda.itens);
+        localStorage.setItem(APP_CONFIG.ls.sequencial, String(seq - 1));
+        Modal.toast("Venda cancelada.", "info");
+      }
+    );
   } else {
-    Modal.toast("✅ Venda #" + seq + " finalizada!");
+    // Não é PIX: salvar direto
+    await salvarVenda(venda);
   }
 }
 
